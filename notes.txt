@@ -1,0 +1,70 @@
+A very simple web application based on Ingress Nginx with TLS
+Build Frontend and Backend with Dockerfiles:
+
+ng build --prod
+docker build -t frontquizaks .
+docker run -p 62:80 -d --name frontendquizaks frontendquizaks
+docker login
+docker images
+docker tag frontquizaks:latest mariolgjerazi/frontquizaks
+docker push mariolgjerazi/frontquizaks
+kubectl get deploy,svc,ing
+
+
+kubectl create namespace task
+kubectl apply -f /backend-deployment.yaml
+kubectl apply -f /frontend-deployment.yaml
+
+Nginx Ingress Controller setup below via Helm :
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm install nginx-ingress ingress-nginx/ingress-nginx --namespace task
+
+Grab your public IP address: kubectl -n task get svc
+
+
+
+To configure NGINX to listen on external ports 80 (HTTP) and 443 (HTTPS), 
+and to redirect HTTP requests to HTTPS, as well as automate the installation and configuration of NGINX and Let's Encrypt, 
+you can use a tool like Cert-Manager in Kubernetes. Cert-Manager automates the management and issuance of TLS certificates from various providers, 
+including Let's Encrypt.
+
+TLS certificate to your devops-sre.space, so it can be used not only via HTTP, but also via HTTPS. 
+In order to do that, you should have a look at Let’s Encrypt (free certificate issuer) and automated way to use it – cert-manager. 
+Note that you need to complete previous point (custom domain)
+
+add 127.0.0.1 devops-sre.space 
+on your /etc/hosts
+
+Install Cert-Manager:
+First, you need to install Cert-Manager in your Kubernetes cluster. You can follow the official installation guide: 
+https://cert-manager.io/docs/installation/kubernetes/
+
+Command to install Cert-Manager: 
+
+helm install cert-manager jetstack/cert-manager --namespace task --create-namespace --set installCRDs=true
+Command to delete: helm delete cert-manager -n task
+
+Generate TLS Certificate and Key
+You can use tools like OpenSSL to generate a self-signed certificate and key for testing purposes. Run the following commands in your terminal:
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=devops-sre.space/O=YourOrganization"
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=devops-sre.space" -reqexts SAN -extensions SAN -config <(cat /etc/ssl/openssl.cnf <(printf "[SAN]\nsubjectAltName=DNS:devops-sre.space,DNS:www.devops-sre.space"))
+
+
+kubectl create secret tls devops-sre-tls-secret --cert=tls.crt --key=tls.key -n task
+
+You can use also SealedSecret to encrypts Kubernetes secrets using a Sealed Secrets controller (optional)
+Install Sealed Secret Controller on Kubernetes
+Sealed secret controller will create a key pair consisting of a private and a public key to encrypt and decrypt a secret.
+
+kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.19.2/controller.yaml
+
+kubectl create secret tls devops-sre-tls-secret --cert=tls.crt --key=tls.key -n task --dry-run=client -o yaml | kubeseal -o yaml > kubeseal.yaml
+
+Create ClusterIssuer:
+Create a ClusterIssuer or Issuer resource to define how Cert-Manager should obtain certificates. Below is an example of a ClusterIssuer for Let's Encrypt
+kubectl apply -f /ssl/cluster-issuer-production.yaml
+
+Apply Ingress for HTTPS
+kubectl apply -f /ssl/ingress-task.yaml
+
+
